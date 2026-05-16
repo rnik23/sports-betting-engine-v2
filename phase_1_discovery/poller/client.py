@@ -74,29 +74,40 @@ class OddsAPIClient:
 
         sports = self._get("/sports", {})
         for sport in sports:
-            name = sport.get("name", "").lower()
+            name = sport.get("sportName", "").lower()
             if "basketball" in name or "nba" in name:
-                self._nba_sport_id = sport["id"]
+                self._nba_sport_id = sport["sportId"]
                 return self._nba_sport_id
 
         raise ValueError("NBA/basketball sport not found in OddsPapi sports list.")
 
     def get_nba_tournament_ids(self) -> list[int]:
-        """Fetch NBA tournaments and return their IDs. Cached after first call."""
+        """Fetch basketball tournaments and return the NBA tournament ID. Cached after first call."""
         if self._nba_tournament_ids is not None:
             return self._nba_tournament_ids
 
         sport_id = self.get_nba_sport_id()
         tournaments = self._get("/tournaments", {"sportId": sport_id})
-        self._nba_tournament_ids = [t["id"] for t in tournaments]
+        tournament_list = tournaments if isinstance(tournaments, list) else tournaments.get("data", [])
+
+        # Target the main NBA tournament only (slug "nba") to avoid passing
+        # hundreds of global basketball league IDs to the fixtures endpoint.
+        nba = [t for t in tournament_list if t.get("tournamentSlug") == "nba"]
+        if not nba:
+            raise ValueError("NBA tournament (slug 'nba') not found in tournaments list.")
+
+        self._nba_tournament_ids = [t["tournamentId"] for t in nba]
         return self._nba_tournament_ids
 
     def get_nba_fixtures(self) -> list[dict]:
-        """Fetch upcoming NBA fixtures. One request."""
-        tournament_ids = self.get_nba_tournament_ids()
-        return self._get("/fixtures", {
-            "tournamentIds": ",".join(str(t) for t in tournament_ids),
+        """Fetch upcoming NBA fixtures that have odds available. One request."""
+        tournament_id = self.get_nba_tournament_ids()[0]  # NBA is a single tournament
+        raw = self._get("/fixtures", {
+            "tournamentId": tournament_id,
+            "statusId": 0,       # not started
+            "hasOdds": "true",
         })
+        return raw if isinstance(raw, list) else raw.get("data", [])
 
     def fetch_nba_odds(
         self,
