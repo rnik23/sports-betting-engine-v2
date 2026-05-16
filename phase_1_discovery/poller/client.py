@@ -3,14 +3,16 @@ OddsPapi REST client.
 
 Responsibilities:
 - Discover NBA sport ID and tournament IDs via the OddsPapi API
-- Fetch live NBA odds across a list of bookmakers (one call per bookmaker)
+- Fetch upcoming NBA fixtures, then odds per fixture across all bookmakers
 - Track request usage so we don't blow the 250/month free tier
 - Cache sport/tournament IDs so discovery doesn't burn quota on every cycle
 
 OddsPapi flow:
-  1. GET /v4/sports               → find NBA sport ID
-  2. GET /v4/tournaments          → find NBA tournament IDs
-  3. GET /v4/odds-by-tournaments  → fetch odds per bookmaker
+  1. GET /v4/sports                    → find NBA sport ID (cached)
+  2. GET /v4/tournaments               → find NBA tournament IDs (cached)
+  3. GET /v4/fixtures                  → list upcoming NBA fixtures
+  4. GET /v4/odds?fixtureId=X          → all bookmakers for one fixture, one call
+     (500ms cooldown between calls enforced by the API)
 """
 
 import os
@@ -89,44 +91,43 @@ class OddsAPIClient:
         self._nba_tournament_ids = [t["id"] for t in tournaments]
         return self._nba_tournament_ids
 
+    def get_nba_fixtures(self) -> list[dict]:
+        """Fetch upcoming NBA fixtures. One request."""
+        tournament_ids = self.get_nba_tournament_ids()
+        return self._get("/fixtures", {
+            "tournamentIds": ",".join(str(t) for t in tournament_ids),
+        })
+
     def fetch_nba_odds(
         self,
         bookmakers: list[str] = DEFAULT_BOOKMAKERS,
         odds_format: str = "american",
     ) -> list:
         """
-        Fetch current NBA odds across multiple bookmakers.
+        Fetch current NBA odds across all requested bookmakers.
 
-        Makes one API call per bookmaker. Results are merged into a single
-        list keyed by fixture so downstream normalization works the same way.
+        One call per fixture (all bookmakers returned in that single call).
+        The API enforces a 500ms cooldown between calls, respected here.
 
-        Each call costs 1 request against the 250/month free tier.
+        Cost: 1 request for fixtures + 1 per fixture with live odds.
         """
-        tournament_ids = self.get_nba_tournament_ids()
-        tournament_ids_str = ",".join(str(t) for t in tournament_ids)
+        fixtures = self.get_nba_fixtures()
+        bookmakers_str = ",".join(bookmakers)
+        results = []
 
-        merged: dict[str, dict] = {}
-
-        for bookmaker in bookmakers:
-            data = self._get("/odds-by-tournaments", {
-                "tournamentIds": tournament_ids_str,
-                "bookmaker": bookmaker,
+        for fixture in fixtures:
+            fixture_id = fixture.get("id") or fixture.get("fixtureId")
+            data = self._get("/odds", {
+                "fixtureId": fixture_id,
+                "bookmakers": bookmakers_str,
                 "oddsFormat": odds_format,
+                "language": "en",
+                "verbosity": 3,
             })
+            results.append(data)
+            time.sleep(0.5)  # respect 500ms cooldown
 
-            for fixture in data if isinstance(data, list) else data.get("data", []):
-                fid = fixture.get("id")
-                if fid not in merged:
-                    merged[fid] = {
-                        "id": fid,
-                        "home_team": fixture.get("home_team"),
-                        "away_team": fixture.get("away_team"),
-                        "commence_time": fixture.get("commence_time"),
-                        "bookmakers": [],
-                    }
-                merged[fid]["bookmakers"].extend(fixture.get("bookmakers", []))
-
-        self._last_response = list(merged.values())
+        self._last_response = results
         self._last_fetched_at = time.time()
         return self._last_response
 
