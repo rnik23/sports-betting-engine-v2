@@ -74,20 +74,19 @@ def american_to_implied_prob(odds: int) -> float:
         return abs(odds) / (abs(odds) + 100)
 
 
+H2H_MARKET_ID = "111"  # OddsPapi's consistent market ID for the h2h moneyline
+
+
 def _find_h2h_market(markets: dict) -> dict | None:
     """
     Return the h2h moneyline market from a bookmaker's markets dict.
 
-    Identified by the presence of outcomes with mainLine=True. This is
-    the primary two-outcome market (home win / away win) that OddsPapi
-    consistently exposes for all basketball fixtures.
+    OddsPapi uses market ID "111" consistently for the two-outcome
+    moneyline across all bookmakers. Multiple markets carry mainLine=True
+    (spreads, totals, etc.), so we key directly on the known ID rather
+    than relying on mainLine alone.
     """
-    for market in markets.values():
-        for outcome in market.get("outcomes", {}).values():
-            for player in outcome.get("players", {}).values():
-                if player.get("mainLine"):
-                    return market
-    return None
+    return markets.get(H2H_MARKET_ID)
 
 
 def normalize_events(raw_response: list[dict]) -> list[NormalizedEvent]:
