@@ -1,5 +1,5 @@
 """
-Live discovery run — polls a single NBA game every 60 seconds and logs
+Live discovery run — polls a single NBA game every 45 seconds and logs
 all bookmaker lines to data/lines.csv for post-game analysis.
 
 Target: Detroit Pistons vs Cleveland Cavaliers
@@ -36,9 +36,9 @@ FIXTURE_ID = "id1100013270505004"   # Pistons vs Cavaliers, 2026-05-18
 HOME_TEAM = "Detroit Pistons"
 AWAY_TEAM = "Cleveland Cavaliers"
 
-POLL_INTERVAL_SECONDS = 60
+POLL_INTERVAL_SECONDS = 45
 MAX_DURATION_HOURS = 3
-MAX_SNAPSHOTS = MAX_DURATION_HOURS * 60  # 180 polls
+MAX_SNAPSHOTS = int(MAX_DURATION_HOURS * 3600 / POLL_INTERVAL_SECONDS)  # 240 polls
 
 BOOKMAKERS = ["draftkings", "fanduel", "betmgm", "caesars", "pinnacle"]
 
